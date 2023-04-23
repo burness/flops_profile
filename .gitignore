@@ -1,0 +1,3 @@
+build/*
+dist/*
+flops_profile.egg-info/*
