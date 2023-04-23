@@ -4,7 +4,6 @@
 
   - [Overview](#overview)
   - [Flops Measurement](#flops-measurement)
-  - [Multi-GPU, Multi-node, Data Parallelism, and Model Parallelism](#multi-gpu-multi-node-data-parallelism-and-model-parallelism)
   - [Usage](#usage)
 ## Overview
 
@@ -143,31 +142,6 @@ The flops estimation is partly inspired by [ptflops](https://github.com/sovrasov
 
 The  Flops Profiler can be used with the  runtime or as a standalone package. When using  for model training, the profiler can be configured in the  configuration file without user code change. To use the flops profiler outside of the  runtime, one can simply install  and import the flops_profiler package to use the APIs directly. Examples of each usage are given below.
 
-  - [Usage With the  Runtime](#usage-with-the--runtime)
-    - [Example: Megatron-LM](#example-megatron-lm)
-  - [Usage Outside the  Runtime](#usage-outside-the--runtime)
-    - [In Model Inference](#in-model-inference)
-      - [Example: AlexNet](#example-alexnet)
-      - [Example: Bert](#example-bert)
-    - [In Model Training Workflow](#in-model-training-workflow)
-      - [Example Training Workflow](#example-training-workflow)
-### Usage With the  Runtime
-
-When using  for model training, the profiler can be configured in the  configuration file. No explicit API calls are needed to use the profiler. The profiler can be enabled by adding the following field to the `_config` json file. Refer to [flops profiler](https://www..ai/docs/config-json/#flops-profiler) for details.
-
-```json
-{
-  "flops_profiler": {
-    "enabled": true,
-    "profile_step": 1,
-    "module_depth": -1,
-    "top_modules": 1,
-    "detailed": true,
-    "output_file": null
-    }
-}
-```
-
 ###  Usage Outside the  Runtime
 
 The profiler can be used as a standalone package outside of the  runtime.
@@ -181,7 +155,7 @@ Examples are given below.
 
 ##### Example: AlexNet
 
-The following example shows how to profile AlexNet using the  flops profiler.
+The following example shows how to profile AlexNet using the  flops profiler details in [alexnet_profile.py](./examples/alexnet_profile.py)
 
 ```python
 import torchvision.models as models
@@ -204,46 +178,6 @@ flops, macs, params = get_model_profile(model=model, # model
                                 ignore_modules=None) # the list of modules to ignore in the profiling
 ```
 
-##### Example: Bert
-
-```python
-from functools import partial
-import torch
-from transformers import BertForSequenceClassification, BertTokenizer
-from .profiling.flops_profiler import get_model_profile
-from .accelerator import get_accelerator
-
-
-def bert_input_constructor(batch_size, seq_len, tokenizer):
-    fake_seq = ""
-    for _ in range(seq_len - 2):  # ignore the two special tokens [CLS] and [SEP]
-      fake_seq += tokenizer.pad_token
-    inputs = tokenizer([fake_seq] * batch_size,
-                       padding=True,
-                       truncation=True,
-                       return_tensors="pt")
-    labels = torch.tensor([1] * batch_size)
-    inputs = dict(inputs)
-    inputs.update({"labels": labels})
-    return inputs
-
-
-tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-model = BertForSequenceClassification.from_pretrained('bert-base-uncased')
-batch_size = 4
-seq_len = 128
-enable_profile = True
-if enable_profile:
-  flops, macs, params = get_model_profile(
-      model,
-      kwargs=bert_input_constructor(batch_size, seq_len, tokenizer),
-      print_profile=True,
-      detailed=True,
-  )
-else:
-  inputs = bert_input_constructor((batch_size, seq_len), tokenizer)
-  outputs = model(inputs)
-```
 
 #### In Model Training Workflow
 
@@ -257,41 +191,3 @@ The `FlopsProfiler`class provides the following methods:
   * `stop_profile()` - stops profiling. This stops the flops counting in the model.
   * `end_profile()` - cleans up. This cleans up the profile attributes added to the model during the profiling. This should be invoked at the end of the profiling and AFTER `get_total_flops`, `get_total_macs`, `get_total_params` or `print_model_profile`.
 
-##### Example Training Workflow
-
-Below is an example of this usage in a typical training workflow.
-
-```python
-from .profiling.flops_profiler import FlopsProfiler
-
-model = Model()
-prof = FlopsProfiler(model)
-
-profile_step = 5
-print_profile= True
-
-for step, batch in enumerate(data_loader):
-  # start profiling at training step "profile_step"
-  if step == profile_step:
-    prof.start_profile()
-
-  # forward() method
-  loss = model(batch)
-
-  # end profiling and print output
-  if step == profile_step: # if using multi nodes, check global_rank == 0 as well
-    prof.stop_profile()
-    flops = prof.get_total_flops()
-    macs = prof.get_total_macs()
-    params = prof.get_total_params()
-    if print_profile:
-        prof.print_model_profile(profile_step=profile_step)
-    prof.end_profile()
-
-  # runs backpropagation
-  loss.backward()
-
-  # weight update
-  optimizer.step()
-
-```
